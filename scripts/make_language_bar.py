@@ -9,10 +9,10 @@ import sys
 from xml.sax.saxutils import escape
 
 LANGUAGES = [
-    ("Python", 35, "#3572A5"),
+    ("Python", 12, "#3572A5"),
     ("SQL", 25, "#e38c00"),
     ("C#", 20, "#178600"),
-    ("JavaScript", 12, "#f1e05a"),
+    ("JavaScript", 35, "#f1e05a"),
     ("Bash/PowerShell", 8, "#89e051"),
 ]
 

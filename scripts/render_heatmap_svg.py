@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Render the scraped contribution JSON as the classic 53-week x 7-day
-calendar of rounded boxes. Reveals once with a diagonal slide-down (CSS
-keyframes that play on load and freeze -- no looping glow), plus a
+calendar of rounded boxes. The grid reveals once with a diagonal
+slide-down (CSS keyframes that play on load and freeze), plus a
 Less -> More legend and a stats footer. Once the grid is in, a small
-snake sweeps the whole board once (boustrophedon, column by column) and
-eats every colored square it crosses, then freezes.
+snake sweeps the whole board on a continuous loop (boustrophedon, column
+by column): it eats every colored square it crosses, pauses briefly at
+the end, then the eaten squares reset and it starts over from the top.
 """
 import json
 import math
@@ -34,6 +35,7 @@ WEEKDAY_LABELS = {1: "Lun", 3: "Mié", 5: "Vie"}  # weekday row (Sun=0) -> label
 SNAKE_COLORS = ["#69f0a0", "#39d353", "#26a641", "#006d32", "#0e4429"]
 SNAKE_CELL_DURATION = 0.035
 SNAKE_EATEN_FADE_DUR = 0.12
+SNAKE_REST_PAUSE = 1.5  # pause on the fully-eaten grid before the loop resets
 
 
 def boustrophedon_path(weeks: int) -> list[tuple[int, int]]:
@@ -59,29 +61,36 @@ def level_for(count: int) -> int:
     return 5
 
 
-def build_snake(path: list[tuple[int, int]], reveal_end: float) -> str:
+def build_snake(path: list[tuple[int, int]], reveal_end: float) -> tuple[str, float]:
+    """Returns (svg_markup, snake_cycle_seconds). The cycle is the sweep
+    across every cell plus a short pause, then it repeats indefinitely."""
     xs = [LABEL_W + PAD_X + w * (CELL + GAP) for w, d in path]
     ys = [PAD_TOP + d * (CELL + GAP) for w, d in path]
-    x_values = ";".join(str(x) for x in xs)
-    y_values = ";".join(str(y) for y in ys)
-    total_dur = SNAKE_CELL_DURATION * (len(path) - 1)
+    move_dur = SNAKE_CELL_DURATION * (len(path) - 1)
+    cycle = move_dur + SNAKE_REST_PAUSE
+
+    key_times = [i * SNAKE_CELL_DURATION / cycle for i in range(len(path))] + [1.0]
+    key_times_str = ";".join(f"{t:.6f}" for t in key_times)
+    x_values = ";".join(str(x) for x in xs) + f";{xs[-1]}"
+    y_values = ";".join(str(y) for y in ys) + f";{ys[-1]}"
 
     segments = []
     for i, color in enumerate(SNAKE_COLORS):
         begin = reveal_end + i * SNAKE_CELL_DURATION
         segments.append(
             f'<rect x="{xs[0]}" y="{ys[0]}" width="{CELL}" height="{CELL}" rx="3" fill="{color}">'
-            f'<animate attributeName="x" values="{x_values}" dur="{total_dur:.2f}s" '
-            f'begin="{begin:.3f}s" fill="freeze" calcMode="discrete"/>'
-            f'<animate attributeName="y" values="{y_values}" dur="{total_dur:.2f}s" '
-            f'begin="{begin:.3f}s" fill="freeze" calcMode="discrete"/>'
+            f'<animate attributeName="x" values="{x_values}" keyTimes="{key_times_str}" '
+            f'dur="{cycle:.3f}s" begin="{begin:.3f}s" repeatCount="indefinite" calcMode="discrete"/>'
+            f'<animate attributeName="y" values="{y_values}" keyTimes="{key_times_str}" '
+            f'dur="{cycle:.3f}s" begin="{begin:.3f}s" repeatCount="indefinite" calcMode="discrete"/>'
             f"</rect>"
         )
 
-    return (
+    markup = (
         f'<g opacity="0"><animate attributeName="opacity" from="0" to="1" dur="0.01s" '
         f'begin="{reveal_end:.3f}s" fill="freeze"/>' + "".join(segments) + "</g>"
     )
+    return markup, cycle
 
 
 def build_grid(days: list[dict]):
@@ -120,6 +129,8 @@ def build_svg(data: dict) -> str:
     path = boustrophedon_path(weeks)
     cell_index = {cell: i for i, cell in enumerate(path)}
     reveal_end = (weeks - 1 + 6) * 0.012 + 0.5
+    snake, snake_cycle = build_snake(path, reveal_end)
+    fade_frac = SNAKE_EATEN_FADE_DUR / snake_cycle
 
     style_rules = []
     cells = []
@@ -137,10 +148,14 @@ def build_svg(data: dict) -> str:
             )
             eaten_anim = ""
             if level > 0:
-                arrival = reveal_end + cell_index[(w, d)] * SNAKE_CELL_DURATION
+                arrival_frac = max(cell_index[(w, d)] * SNAKE_CELL_DURATION / snake_cycle, 0.0001)
+                fade_end_frac = min(arrival_frac + fade_frac, 0.9999)
+                level_color = PALETTE[level]
                 eaten_anim = (
-                    f'<animate attributeName="fill" to="{PALETTE[0]}" '
-                    f'dur="{SNAKE_EATEN_FADE_DUR}s" begin="{arrival:.3f}s" fill="freeze"/>'
+                    f'<animate attributeName="fill" '
+                    f'values="{level_color};{level_color};{PALETTE[0]};{PALETTE[0]}" '
+                    f'keyTimes="0;{arrival_frac:.6f};{fade_end_frac:.6f};1" '
+                    f'dur="{snake_cycle:.3f}s" begin="{reveal_end:.3f}s" repeatCount="indefinite"/>'
                 )
             cells.append(
                 f'<rect class="{cls}" x="{x}" y="{y}" width="{CELL}" height="{CELL}" '
@@ -172,8 +187,6 @@ def build_svg(data: dict) -> str:
         f'<text x="{legend_x + len(PALETTE) * (CELL + 3) + 6}" y="{legend_y + 10}" '
         f'fill="{MUTED}" font-size="11">More</text>'
     )
-
-    snake = build_snake(path, reveal_end)
 
     total = stats.get("total", sum(d["count"] for d in days))
     streak = stats.get("current_streak", 0)
