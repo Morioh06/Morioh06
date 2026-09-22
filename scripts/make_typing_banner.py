@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """Two-line terminal intro banner: a prompt that types itself, then a
 reply line that types in right after. Both freeze once printed; a small
-cursor block keeps a slow, subtle infinite blink at the very end -- the
-one place in this project that loops, since a resting terminal cursor
-blinking forever is the realistic behavior, not a gimmick.
+cursor block keeps a slow, subtle infinite blink at the very end, and a
+dim Matrix-rain drizzle runs behind everything -- the two intentionally
+looping touches in this project, since a resting cursor and background
+rain are meant to run forever, not freeze.
 """
+import random
 import sys
 from xml.sax.saxutils import escape
 
@@ -26,6 +28,45 @@ BORDER = "#30363d"
 ROW_DUR = 0.55
 ROW_GAP = 0.15
 
+RAIN_CHARS = "0123456789ｱｲｳｴｵｶｷｸｹｺｻｼｽｾｿﾀﾁﾂﾃﾄﾅﾆﾇﾈﾉﾊﾋﾌﾍﾎﾏﾐﾑﾒﾓﾔﾕﾖﾗﾘﾙﾚﾛﾜﾝ"
+RAIN_COLOR = "#39d353"
+RAIN_COL_W = 16
+RAIN_FONT_SIZE = 13
+RAIN_TRAIL_LEN = 6
+RAIN_TRAIL_GAP = 15
+RAIN_SEED = 42
+
+
+def build_matrix_rain(width: int, height: int) -> str:
+    rng = random.Random(RAIN_SEED)
+    n_cols = width // RAIN_COL_W
+    trail_h = RAIN_TRAIL_LEN * RAIN_TRAIL_GAP
+
+    columns = []
+    for c in range(n_cols):
+        x = c * RAIN_COL_W + RAIN_COL_W / 2
+        chars = [rng.choice(RAIN_CHARS) for _ in range(RAIN_TRAIL_LEN)]
+        tspans = "".join(
+            f'<tspan x="{x}" dy="{0 if j == 0 else RAIN_TRAIL_GAP}" '
+            f'opacity="{0.08 + 0.75 * (j / (RAIN_TRAIL_LEN - 1)) ** 2:.2f}">{ch}</tspan>'
+            for j, ch in enumerate(chars)
+        )
+        dur = rng.uniform(2.2, 4.5)
+        begin = rng.uniform(-dur, 0)
+        columns.append(
+            f'<g transform="translate(0,{-trail_h})">'
+            f'<animateTransform attributeName="transform" type="translate" '
+            f'from="0 {-trail_h}" to="0 {height}" dur="{dur:.2f}s" begin="{begin:.2f}s" '
+            f'repeatCount="indefinite"/>'
+            f'<text x="0" y="0" font-size="{RAIN_FONT_SIZE}" fill="{RAIN_COLOR}" '
+            f'text-anchor="middle">{tspans}</text></g>'
+        )
+
+    return (
+        f'<g clip-path="url(#cardclip)" opacity="0.55">{"".join(columns)}</g>'
+        f'<rect x="0" y="0" width="{width}" height="{height}" rx="14" fill="{BG}" opacity="0.5"/>'
+    )
+
 
 def build_svg() -> str:
     height = PAD_Y * 2 + LINE_H * len(LINES)
@@ -33,6 +74,8 @@ def build_svg() -> str:
         f'<svg viewBox="0 0 {WIDTH} {height}" xmlns="http://www.w3.org/2000/svg" '
         f'font-family="Consolas, \'SF Mono\', Menlo, monospace" font-size="{FONT_SIZE}">',
         f'<rect x="0" y="0" width="{WIDTH}" height="{height}" rx="14" fill="{BG}" stroke="{BORDER}"/>',
+        f'<clipPath id="cardclip"><rect x="0" y="0" width="{WIDTH}" height="{height}" rx="14"/></clipPath>',
+        build_matrix_rain(WIDTH, height),
         "<defs>",
     ]
 
