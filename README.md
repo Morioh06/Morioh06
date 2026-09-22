@@ -1,5 +1,9 @@
 <div align="center">
 
+<img src="./typing-banner.svg" width="860" />
+
+<br><br>
+
 <h3><code>morioh06@github ~ $ ./contributions.sh</code></h3>
 <img src="./contrib-heatmap.svg" width="860" />
 
@@ -12,5 +16,10 @@
     <td valign="top"><img src="./info-card.svg" width="490" /></td>
   </tr>
 </table>
+
+<br><br>
+
+<h3><code>morioh06@github ~ $ ./stack.sh</code></h3>
+<img src="./language-bar.svg" width="860" />
 
 </div>

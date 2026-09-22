@@ -2,7 +2,9 @@
 """Render the scraped contribution JSON as the classic 53-week x 7-day
 calendar of rounded boxes. Reveals once with a diagonal slide-down (CSS
 keyframes that play on load and freeze -- no looping glow), plus a
-Less -> More legend and a stats footer.
+Less -> More legend and a stats footer. Once the grid is in, a small
+snake sweeps the whole board once (boustrophedon, column by column) and
+eats every colored square it crosses, then freezes.
 """
 import json
 import math
@@ -29,6 +31,19 @@ MUTED = "#8b949e"
 MONTH_NAMES = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"]
 WEEKDAY_LABELS = {1: "Lun", 3: "Mié", 5: "Vie"}  # weekday row (Sun=0) -> label
 
+SNAKE_COLORS = ["#69f0a0", "#39d353", "#26a641", "#006d32", "#0e4429"]
+SNAKE_CELL_DURATION = 0.035
+SNAKE_EATEN_FADE_DUR = 0.12
+
+
+def boustrophedon_path(weeks: int) -> list[tuple[int, int]]:
+    path = []
+    for w in range(weeks):
+        day_range = range(7) if w % 2 == 0 else range(6, -1, -1)
+        for d in day_range:
+            path.append((w, d))
+    return path
+
 
 def level_for(count: int) -> int:
     if count <= 0:
@@ -42,6 +57,31 @@ def level_for(count: int) -> int:
     if count <= 14:
         return 4
     return 5
+
+
+def build_snake(path: list[tuple[int, int]], reveal_end: float) -> str:
+    xs = [LABEL_W + PAD_X + w * (CELL + GAP) for w, d in path]
+    ys = [PAD_TOP + d * (CELL + GAP) for w, d in path]
+    x_values = ";".join(str(x) for x in xs)
+    y_values = ";".join(str(y) for y in ys)
+    total_dur = SNAKE_CELL_DURATION * (len(path) - 1)
+
+    segments = []
+    for i, color in enumerate(SNAKE_COLORS):
+        begin = reveal_end + i * SNAKE_CELL_DURATION
+        segments.append(
+            f'<rect x="{xs[0]}" y="{ys[0]}" width="{CELL}" height="{CELL}" rx="3" fill="{color}">'
+            f'<animate attributeName="x" values="{x_values}" dur="{total_dur:.2f}s" '
+            f'begin="{begin:.3f}s" fill="freeze" calcMode="discrete"/>'
+            f'<animate attributeName="y" values="{y_values}" dur="{total_dur:.2f}s" '
+            f'begin="{begin:.3f}s" fill="freeze" calcMode="discrete"/>'
+            f"</rect>"
+        )
+
+    return (
+        f'<g opacity="0"><animate attributeName="opacity" from="0" to="1" dur="0.01s" '
+        f'begin="{reveal_end:.3f}s" fill="freeze"/>' + "".join(segments) + "</g>"
+    )
 
 
 def build_grid(days: list[dict]):
@@ -77,6 +117,10 @@ def build_svg(data: dict) -> str:
     width = LABEL_W + PAD_X + grid_w + PAD_X
     height = PAD_TOP + grid_h + PAD_BOTTOM
 
+    path = boustrophedon_path(weeks)
+    cell_index = {cell: i for i, cell in enumerate(path)}
+    reveal_end = (weeks - 1 + 6) * 0.012 + 0.5
+
     style_rules = []
     cells = []
     for w in range(weeks):
@@ -91,9 +135,17 @@ def build_svg(data: dict) -> str:
             style_rules.append(
                 f".{cls}{{animation:reveal .5s cubic-bezier(.25,.1,.25,1) {delay:.3f}s both;}}"
             )
+            eaten_anim = ""
+            if level > 0:
+                arrival = reveal_end + cell_index[(w, d)] * SNAKE_CELL_DURATION
+                eaten_anim = (
+                    f'<animate attributeName="fill" to="{PALETTE[0]}" '
+                    f'dur="{SNAKE_EATEN_FADE_DUR}s" begin="{arrival:.3f}s" fill="freeze"/>'
+                )
             cells.append(
                 f'<rect class="{cls}" x="{x}" y="{y}" width="{CELL}" height="{CELL}" '
-                f'rx="3" fill="{PALETTE[level]}"><title>{count} contribuciones el {cell_date}</title></rect>'
+                f'rx="3" fill="{PALETTE[level]}">{eaten_anim}'
+                f'<title>{count} contribuciones el {cell_date}</title></rect>'
             )
 
     month_labels = [
@@ -121,6 +173,8 @@ def build_svg(data: dict) -> str:
         f'fill="{MUTED}" font-size="11">More</text>'
     )
 
+    snake = build_snake(path, reveal_end)
+
     total = stats.get("total", sum(d["count"] for d in days))
     streak = stats.get("current_streak", 0)
     longest = stats.get("longest_streak", 0)
@@ -139,6 +193,7 @@ def build_svg(data: dict) -> str:
         "".join(month_labels),
         "".join(weekday_labels),
         "".join(cells),
+        snake,
         "".join(legend),
         footer,
         "</svg>",
